@@ -47,19 +47,10 @@ const PAGE_SIZE = 20;
 
 const SORT_CYCLES: Record<SortKey, string[]> = {
   name: ["asc", "desc"],
-  interconnection: ["onlineFirst", "offlineFirst"],
+  interconnection: ["asc", "desc"],
   operation: ["oldestFirst", "newestFirst"],
   battery: ["highToLow", "lowToHigh"],
   owner: ["alphabetical", "uncatalogedFirst"],
-};
-
-const NETWORK_STATUS_PRIORITY: Record<string, number> = {
-  ONLINE: 0,
-  ALL_ONLINE: 0,
-  PARTIAL_ONLINE: 1,
-  PARTIAL_OFFLINE: 2,
-  OFFLINE: 3,
-  ALL_OFFLINE: 3,
 };
 
 const accessToken = ref("");
@@ -213,21 +204,6 @@ function getErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-function getNetworkStatusRank(status: string): number {
-  const normalized = status.trim().toUpperCase();
-  const directRank = NETWORK_STATUS_PRIORITY[normalized];
-  if (typeof directRank === "number") {
-    return directRank;
-  }
-  if (normalized.includes("ONLINE") && !normalized.includes("OFFLINE")) {
-    return 1;
-  }
-  if (normalized.includes("OFFLINE")) {
-    return 3;
-  }
-  return 2;
-}
-
 function compareText(a: string, b: string): number {
   return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
 }
@@ -257,13 +233,14 @@ function compareStations(
   }
 
   if (key === "interconnection") {
-    const rankA = getNetworkStatusRank(a.networkStatus);
-    const rankB = getNetworkStatusRank(b.networkStatus);
-    const byRank = rankA - rankB;
-    if (byRank !== 0) {
-      return mode === "onlineFirst" ? byRank : -byRank;
+    const byInterconnection = compareText(
+      a.gridInterconnectionType,
+      b.gridInterconnectionType
+    );
+    if (byInterconnection !== 0) {
+      return mode === "asc" ? byInterconnection : -byInterconnection;
     }
-    return compareText(a.gridInterconnectionType, b.gridInterconnectionType);
+    return compareText(a.name, b.name);
   }
 
   if (key === "operation") {
@@ -328,8 +305,6 @@ function getSortIndicator(key: SortKey): string {
   const mode = SORT_CYCLES[key][activeSort.value.modeIndex];
   if (mode === "asc") return "A-Z";
   if (mode === "desc") return "Z-A";
-  if (mode === "onlineFirst") return "Online → Offline";
-  if (mode === "offlineFirst") return "Offline → Online";
   if (mode === "oldestFirst") return "Mais antiga";
   if (mode === "newestFirst") return "Mais recente";
   if (mode === "highToLow") return "100% → 0%";
@@ -346,8 +321,6 @@ function getSortHint(key: SortKey): string {
   const mode = SORT_CYCLES[key][activeSort.value.modeIndex];
   if (mode === "asc") return "Ordem alfabética crescente";
   if (mode === "desc") return "Ordem alfabética decrescente";
-  if (mode === "onlineFirst") return "Online para Offline";
-  if (mode === "offlineFirst") return "Offline para Online";
   if (mode === "oldestFirst") return "Data mais antiga primeiro";
   if (mode === "newestFirst") return "Data mais recente primeiro";
   if (mode === "highToLow") return "Bateria de maior para menor";

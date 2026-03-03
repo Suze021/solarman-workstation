@@ -15,6 +15,7 @@ Aplicacao web para autenticar na API Solarman e listar plantas solares com pagin
   - body com `page`, `size`, `language` (opcional)
 - Exibicao das plantas em cards (modo padrao) com todos os campos exigidos.
 - Tabela comparativa opcional com campos complementares.
+- Ordenacao ciclica na tabela comparativa por clique no cabecalho (com reset no ultimo modo), incluindo interconexao por `gridInterconnectionType`.
 - Paginacao com `Anterior`, `Proxima` e `Pagina X`.
 - Estados de `loading`, `erro` e `vazio`.
 
