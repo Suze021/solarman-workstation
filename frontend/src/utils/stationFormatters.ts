@@ -8,6 +8,7 @@ export function normalizeEpochMilliseconds(value: unknown): number | null {
   if (numericValue === null || numericValue <= 0) {
     return null;
   }
+  // A API pode enviar epoch em segundos; normalizamos para milissegundos.
   return numericValue < 1_000_000_000_000 ? numericValue * 1000 : numericValue;
 }
 
@@ -27,6 +28,7 @@ export function toGenerationPowerKw(value: unknown): number | null {
   if (numericValue === null) {
     return null;
   }
+  // Mantem compatibilidade com payloads em W sem quebrar os casos ja em kW.
   if (numericValue >= 1000) {
     return numericValue / 1000;
   }

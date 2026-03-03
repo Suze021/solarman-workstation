@@ -13,6 +13,7 @@ export function normalizeStation(
 ): StationViewModel {
   const generationPowerKw = toGenerationPowerKw(station.generationPower);
   const installedCapacityKw = toNumber(station.installedCapacity);
+  // Formula combinada com o usuario: (geracao atual / capacidade instalada) * 100.
   const utilizationPercent =
     generationPowerKw !== null &&
     installedCapacityKw !== null &&
@@ -20,6 +21,7 @@ export function normalizeStation(
       ? (generationPowerKw / installedCapacityKw) * 100
       : null;
   const batterySocValue = toNumber(station.batterySoc);
+  // Fallback para indice local quando o id nao vier no payload.
   const baseId = typeof station.id === "number" ? String(station.id) : String(index);
 
   return {

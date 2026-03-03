@@ -14,6 +14,7 @@ interface AuthResponse {
 }
 
 async function parseResponsePayload<T>(response: Response): Promise<T> {
+  // Evita quebrar o fluxo quando o backend retorna corpo vazio ou JSON invalido.
   return (await response.json().catch(() => ({}))) as T;
 }
 
@@ -32,6 +33,7 @@ export async function authenticateAccount(): Promise<string> {
     throw new Error(getErrorMessage(payload, "Falha na autenticacao."));
   }
 
+  // O backend sempre deve devolver accessToken quando a autenticacao e valida.
   const token = typeof payload.accessToken === "string" ? payload.accessToken : "";
   if (!token.trim()) {
     throw new Error("A resposta de autenticacao nao incluiu accessToken.");
@@ -66,6 +68,7 @@ export async function requestStationsPage(params: {
     );
   }
 
+  // Valida o contrato minimo esperado para manter a tela consistente.
   if (!Array.isArray(payload.stationList)) {
     throw new Error("A resposta da lista de plantas e invalida.");
   }
