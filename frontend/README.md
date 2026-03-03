@@ -38,3 +38,4 @@ npm run build
 
 - A listagem de plantas usa `POST` via backend (`/api/stations/list`).
 - O token de autenticacao e armazenado em `localStorage` para reutilizacao.
+- Para deploy no Vercel, configure `VITE_API_BASE_URL` apontando para a URL do backend publicado.

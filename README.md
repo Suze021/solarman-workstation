@@ -32,10 +32,14 @@ Aplicacao web para autenticar na API Solarman e listar plantas solares com pagin
 ```txt
 prova!/
   backend/
+    api/
+      index.js
     src/
+      app.js
       config.js
       solarmanClient.js
       server.js
+    vercel.json
   frontend/
     src/
       App.vue
@@ -147,6 +151,39 @@ Backend (checagem de sintaxe):
 
 ```bash
 cd backend
+node -c src/app.js
 node -c src/server.js
 node -c src/solarmanClient.js
 ```
+
+## Deploy no Vercel (Serverless)
+
+O backend foi adaptado para Vercel Serverless sem mudar o contrato dos endpoints.
+
+Arquivos de compatibilidade:
+
+- `backend/api/index.js` (entrypoint serverless)
+- `backend/vercel.json` (rewrite para a funcao serverless)
+- `backend/src/app.js` (Express app reutilizavel)
+
+### Backend no Vercel
+
+1. Crie um projeto no Vercel apontando para a pasta `backend`.
+2. Configure as variaveis de ambiente no projeto backend:
+   - `SOLARMAN_APP_ID`
+   - `SOLARMAN_APP_SECRET`
+   - `SOLARMAN_EMAIL`
+   - `SOLARMAN_PASSWORD`
+   - `SOLARMAN_ORG_ID`
+   - opcional: `SOLARMAN_BASE_URL`, `SOLARMAN_TIMEOUT_MS`
+3. Faça deploy.
+4. A URL backend publicada deve responder:
+   - `POST /api/auth/token`
+   - `POST /api/stations/list`
+   - `GET /health`
+
+### Frontend no Vercel
+
+1. Crie um segundo projeto no Vercel apontando para a pasta `frontend`.
+2. Configure `VITE_API_BASE_URL` com a URL do backend publicado.
+3. Faça deploy do frontend.

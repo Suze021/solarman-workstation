@@ -105,7 +105,7 @@ function normalizeEpochMilliseconds(value: unknown): number | null {
 function formatDateTime(value: unknown): string {
   const epochMs = normalizeEpochMilliseconds(value);
   if (epochMs === null) {
-    return "Nao informado";
+    return "Não informado";
   }
 
   return new Intl.DateTimeFormat("pt-BR", {
@@ -129,12 +129,12 @@ function toGenerationPowerKw(value: unknown): number | null {
 
 function formatValue(value: string | null | undefined): string {
   const safeValue = typeof value === "string" ? value.trim() : "";
-  return safeValue ? safeValue : "Nao informado";
+  return safeValue ? safeValue : "Não informado";
 }
 
 function formatNumber(value: number | null, fractionDigits = 2): string {
   if (value === null) {
-    return "Nao informado";
+    return "Não informado";
   }
 
   return new Intl.NumberFormat("pt-BR", {
@@ -169,7 +169,7 @@ function normalizeStation(station: StationApi, index: number): StationViewModel 
     gridInterconnectionType: formatValue(station.gridInterconnectionType),
     startOperatingTime: formatDateTime(station.startOperatingTime),
     lastUpdateTime: formatDateTime(station.lastUpdateTime),
-    batterySoc: batterySoc === null ? "Nao informado" : `${formatNumber(batterySoc)}%`,
+    batterySoc: batterySoc === null ? "Não informado" : `${formatNumber(batterySoc)}%`,
     ownerName: formatValue(station.ownerName),
     contactPhone: formatValue(station.contactPhone),
   };
@@ -188,7 +188,7 @@ function getErrorMessage(payload: unknown, fallback: string): string {
 
 async function fetchStations(page: number) {
   if (!accessToken.value) {
-    stationsError.value = "Autentique antes de carregar a lista de plantas.";
+    stationsError.value = "Autentique-se antes de carregar a lista de plantas.";
     return;
   }
 
@@ -215,11 +215,13 @@ async function fetchStations(page: number) {
     };
 
     if (!response.ok) {
-      throw new Error(getErrorMessage(payload, "Failed to load station list."));
+      throw new Error(
+        getErrorMessage(payload, "Falha ao carregar a lista de plantas.")
+      );
     }
 
     if (!Array.isArray(payload.stationList)) {
-      throw new Error("Station list response is invalid.");
+      throw new Error("A resposta da lista de plantas é inválida.");
     }
 
     stations.value = payload.stationList.map((station, index) =>
@@ -235,7 +237,7 @@ async function fetchStations(page: number) {
     stationsError.value =
       error instanceof Error
         ? error.message
-        : "Unexpected error while loading stations.";
+        : "Erro inesperado ao carregar as plantas.";
   } finally {
     isLoadingStations.value = false;
   }
@@ -258,7 +260,7 @@ async function authenticate() {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(getErrorMessage(payload, "Authentication failed."));
+      throw new Error(getErrorMessage(payload, "Falha na autenticação."));
     }
 
     const token =
@@ -272,13 +274,13 @@ async function authenticate() {
 
     accessToken.value = token;
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    authSuccess.value = "Autenticacao concluida. Token armazenado localmente.";
+    authSuccess.value = "Autenticação concluída. Token armazenado localmente.";
     await fetchStations(1);
   } catch (error) {
     authError.value =
       error instanceof Error
         ? error.message
-        : "Unexpected error during authentication.";
+        : "Erro inesperado durante a autenticação.";
   } finally {
     isAuthenticating.value = false;
   }
@@ -323,15 +325,15 @@ onMounted(async () => {
   <div class="app-shell">
     <header class="topbar">
       <h1>Solarman Workstation</h1>
-      <p>Teste Tecnico: Integracao com API Solarman</p>
+      <p>Teste Técnico: Integração com API Solarman</p>
     </header>
 
     <main class="content" aria-live="polite">
       <section class="panel" aria-label="Painel de autenticacao">
-        <h2>Autenticacao Solarman</h2>
+        <h2>Autenticação Solarman</h2>
         <p class="muted">
-          Credenciais configuradas no backend. O token e reutilizado nas
-          requisicoes seguintes.
+          Credenciais configuradas no backend. O token é reutilizado nas
+          requisições seguintes.
         </p>
 
         <div class="actions">
@@ -374,13 +376,13 @@ onMounted(async () => {
         <div class="section-header">
           <h2>Plantas solares</h2>
           <p class="muted">
-            Pagina {{ currentPage }} <span v-if="totalLabel">| {{ totalLabel }}</span>
+            Página {{ currentPage }} <span v-if="totalLabel">| {{ totalLabel }}</span>
           </p>
         </div>
 
         <label class="toggle-line">
           <input type="checkbox" v-model="showComparisonTable" />
-          Mostrar tabela comparativa (campos complementares)
+          Mostrar tabela comparativa (campos complementares).
         </label>
 
         <p v-if="stationsError" class="feedback error">{{ stationsError }}</p>
@@ -391,7 +393,7 @@ onMounted(async () => {
           v-else-if="accessToken && stations.length === 0"
           class="feedback neutral"
         >
-          Nenhuma planta encontrada para a pagina atual.
+          Nenhuma planta encontrada para a página atual.
         </p>
         <p v-else-if="!accessToken" class="feedback neutral">
           Autentique para visualizar as plantas.
@@ -418,11 +420,11 @@ onMounted(async () => {
 
             <dl class="station-fields">
               <div>
-                <dt>Endereco</dt>
+                <dt>Endereço</dt>
                 <dd>{{ station.locationAddress }}</dd>
               </div>
               <div>
-                <dt>Geracao atual (kW)</dt>
+                <dt>Geração atual (kW)</dt>
                 <dd>{{ formatNumber(station.generationPowerKw) }}</dd>
               </div>
               <div>
@@ -434,7 +436,7 @@ onMounted(async () => {
                 <dd>
                   {{
                     station.utilizationPercent === null
-                      ? "Nao informado"
+                      ? "Não informado"
                       : `${formatNumber(station.utilizationPercent)}%`
                   }}
                 </dd>
@@ -444,23 +446,23 @@ onMounted(async () => {
                 <dd>{{ station.type }}</dd>
               </div>
               <div>
-                <dt>Tipo de interconexao</dt>
+                <dt>Tipo de interconexão</dt>
                 <dd>{{ station.gridInterconnectionType }}</dd>
               </div>
               <div>
-                <dt>Inicio de operacao</dt>
+                <dt>Início de operação</dt>
                 <dd>{{ station.startOperatingTime }}</dd>
               </div>
               <div>
-                <dt>Ultima atualizacao</dt>
+                <dt>Última atualização</dt>
                 <dd>{{ station.lastUpdateTime }}</dd>
               </div>
               <div>
-                <dt>Nivel de bateria</dt>
+                <dt>Nível de bateria</dt>
                 <dd>{{ station.batterySoc }}</dd>
               </div>
               <div>
-                <dt>Proprietario</dt>
+                <dt>Proprietário</dt>
                 <dd>{{ station.ownerName }}</dd>
               </div>
               <div>
@@ -480,10 +482,10 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th scope="col">Planta</th>
-                <th scope="col">Interconexao</th>
-                <th scope="col">Inicio de operacao</th>
+                <th scope="col">Interconexão</th>
+                <th scope="col">Início de operação</th>
                 <th scope="col">Bateria</th>
-                <th scope="col">Proprietario</th>
+                <th scope="col">Proprietário</th>
                 <th scope="col">Telefone</th>
               </tr>
             </thead>
@@ -500,7 +502,7 @@ onMounted(async () => {
           </table>
         </div>
 
-        <nav class="pagination" aria-label="Paginacao de plantas">
+        <nav class="pagination" aria-label="Paginação de plantas">
           <button
             type="button"
             class="secondary-button"
@@ -509,14 +511,14 @@ onMounted(async () => {
           >
             Anterior
           </button>
-          <span class="page-label">Pagina {{ currentPage }}</span>
+          <span class="page-label">Página {{ currentPage }}</span>
           <button
             type="button"
             class="secondary-button"
             :disabled="!hasNextPage || isLoadingStations"
             @click="goToNextPage"
           >
-            Proxima
+            Próxima
           </button>
         </nav>
       </section>
