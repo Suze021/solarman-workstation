@@ -104,7 +104,8 @@ cd frontend
 copy .env.example .env
 ```
 
-Ajuste `VITE_API_BASE_URL` se necessario.
+Ajuste `VITE_API_BASE_URL` somente se precisar apontar para um backend externo.
+Para desenvolvimento local (incluindo acesso por Cloudflare Tunnel), deixe vazio para usar `/api` via proxy do Vite.
 
 ## Como executar localmente
 
@@ -147,7 +148,9 @@ cloudflared tunnel --url http://localhost:5173
 
 3. Acesse a URL `https://<nome>.trycloudflare.com` gerada no terminal.
 
-Observacao: o Vite ja esta configurado com `allowedHosts: ['.trycloudflare.com']` em `frontend/vite.config.ts`.
+Observacao:
+- O Vite ja esta configurado com `allowedHosts: ['.trycloudflare.com']` em `frontend/vite.config.ts`.
+- O proxy do Vite encaminha `/api` e `/health` para `http://localhost:3001`, entao o celular acessa o backend sem precisar de segundo tunnel.
 
 ### Opcao 2: Dominio proprio (URL estavel)
 
