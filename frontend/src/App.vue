@@ -28,17 +28,39 @@ interface StationViewModel {
   type: string;
   gridInterconnectionType: string;
   startOperatingTime: string;
+  startOperatingEpochMs: number | null;
   lastUpdateTime: string;
   batterySoc: string;
+  batterySocValue: number | null;
   ownerName: string;
+  ownerRegistered: boolean;
   contactPhone: string;
 }
+
+type SortKey = "name" | "interconnection" | "operation" | "battery" | "owner";
 
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   "http://localhost:3001";
 const TOKEN_STORAGE_KEY = "solarman_workstation_access_token";
 const PAGE_SIZE = 20;
+
+const SORT_CYCLES: Record<SortKey, string[]> = {
+  name: ["asc", "desc"],
+  interconnection: ["onlineFirst", "offlineFirst"],
+  operation: ["oldestFirst", "newestFirst"],
+  battery: ["highToLow", "lowToHigh"],
+  owner: ["alphabetical", "uncatalogedFirst"],
+};
+
+const NETWORK_STATUS_PRIORITY: Record<string, number> = {
+  ONLINE: 0,
+  ALL_ONLINE: 0,
+  PARTIAL_ONLINE: 1,
+  PARTIAL_OFFLINE: 2,
+  OFFLINE: 3,
+  ALL_OFFLINE: 3,
+};
 
 const accessToken = ref("");
 const isAuthenticating = ref(false);
@@ -50,20 +72,7 @@ const stations = ref<StationViewModel[]>([]);
 const currentPage = ref(1);
 const totalStations = ref<number | null>(null);
 const showComparisonTable = ref(false);
-
-const maskedToken = computed(() => {
-  if (!accessToken.value) {
-    return "";
-  }
-
-  if (accessToken.value.length <= 14) {
-    return accessToken.value;
-  }
-
-  const prefix = accessToken.value.slice(0, 8);
-  const suffix = accessToken.value.slice(-6);
-  return `${prefix}...${suffix}`;
-});
+const activeSort = ref<{ key: SortKey; modeIndex: number } | null>(null);
 
 const hasPreviousPage = computed(() => currentPage.value > 1);
 const hasNextPage = computed(() => {
@@ -78,8 +87,27 @@ const totalLabel = computed(() => {
   if (typeof totalStations.value !== "number") {
     return "";
   }
-
   return `${totalStations.value} plantas`;
+});
+
+const isAuthenticated = computed(() => Boolean(accessToken.value));
+
+const comparisonStations = computed(() => {
+  const base = [...stations.value];
+  if (!activeSort.value) {
+    return base;
+  }
+
+  const sortConfig = activeSort.value;
+  const mode = SORT_CYCLES[sortConfig.key][sortConfig.modeIndex];
+
+  if (!mode) {
+    return base;
+  }
+
+  const sorted = [...base];
+  sorted.sort((a, b) => compareStations(a, b, sortConfig.key, mode));
+  return sorted;
 });
 
 function loadStoredToken() {
@@ -97,8 +125,6 @@ function normalizeEpochMilliseconds(value: unknown): number | null {
   if (numericValue === null || numericValue <= 0) {
     return null;
   }
-
-  // Input expected as milliseconds, but fallback handles second-based payloads.
   return numericValue < 1_000_000_000_000 ? numericValue * 1000 : numericValue;
 }
 
@@ -107,7 +133,6 @@ function formatDateTime(value: unknown): string {
   if (epochMs === null) {
     return "Não informado";
   }
-
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
@@ -119,11 +144,9 @@ function toGenerationPowerKw(value: unknown): number | null {
   if (numericValue === null) {
     return null;
   }
-
   if (numericValue >= 1000) {
     return numericValue / 1000;
   }
-
   return numericValue;
 }
 
@@ -136,7 +159,6 @@ function formatNumber(value: number | null, fractionDigits = 2): string {
   if (value === null) {
     return "Não informado";
   }
-
   return new Intl.NumberFormat("pt-BR", {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -152,10 +174,12 @@ function normalizeStation(station: StationApi, index: number): StationViewModel 
     installedCapacityKw > 0
       ? (generationPowerKw / installedCapacityKw) * 100
       : null;
-  const batterySoc = toNumber(station.batterySoc);
-
-  const baseId =
-    typeof station.id === "number" ? String(station.id) : String(index);
+  const batterySocValue = toNumber(station.batterySoc);
+  const startOperatingEpochMs = normalizeEpochMilliseconds(station.startOperatingTime);
+  const ownerRaw = typeof station.ownerName === "string" ? station.ownerName.trim() : "";
+  const ownerRegistered = Boolean(ownerRaw);
+  const ownerName = ownerRegistered ? ownerRaw : "Não cadastrado";
+  const baseId = typeof station.id === "number" ? String(station.id) : String(index);
 
   return {
     idKey: baseId,
@@ -168,9 +192,13 @@ function normalizeStation(station: StationApi, index: number): StationViewModel 
     type: formatValue(station.type),
     gridInterconnectionType: formatValue(station.gridInterconnectionType),
     startOperatingTime: formatDateTime(station.startOperatingTime),
+    startOperatingEpochMs,
     lastUpdateTime: formatDateTime(station.lastUpdateTime),
-    batterySoc: batterySoc === null ? "Não informado" : `${formatNumber(batterySoc)}%`,
-    ownerName: formatValue(station.ownerName),
+    batterySoc:
+      batterySocValue === null ? "Não informado" : `${formatNumber(batterySocValue)}%`,
+    batterySocValue,
+    ownerName,
+    ownerRegistered,
     contactPhone: formatValue(station.contactPhone),
   };
 }
@@ -182,8 +210,151 @@ function getErrorMessage(payload: unknown, fallback: string): string {
       return message;
     }
   }
-
   return fallback;
+}
+
+function getNetworkStatusRank(status: string): number {
+  const normalized = status.trim().toUpperCase();
+  const directRank = NETWORK_STATUS_PRIORITY[normalized];
+  if (typeof directRank === "number") {
+    return directRank;
+  }
+  if (normalized.includes("ONLINE") && !normalized.includes("OFFLINE")) {
+    return 1;
+  }
+  if (normalized.includes("OFFLINE")) {
+    return 3;
+  }
+  return 2;
+}
+
+function compareText(a: string, b: string): number {
+  return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+}
+
+function compareNullableNumber(a: number | null, b: number | null): number {
+  if (a === null && b === null) {
+    return 0;
+  }
+  if (a === null) {
+    return 1;
+  }
+  if (b === null) {
+    return -1;
+  }
+  return a - b;
+}
+
+function compareStations(
+  a: StationViewModel,
+  b: StationViewModel,
+  key: SortKey,
+  mode: string
+): number {
+  if (key === "name") {
+    const byName = compareText(a.name, b.name);
+    return mode === "asc" ? byName : -byName;
+  }
+
+  if (key === "interconnection") {
+    const rankA = getNetworkStatusRank(a.networkStatus);
+    const rankB = getNetworkStatusRank(b.networkStatus);
+    const byRank = rankA - rankB;
+    if (byRank !== 0) {
+      return mode === "onlineFirst" ? byRank : -byRank;
+    }
+    return compareText(a.gridInterconnectionType, b.gridInterconnectionType);
+  }
+
+  if (key === "operation") {
+    const byDate = compareNullableNumber(a.startOperatingEpochMs, b.startOperatingEpochMs);
+    if (byDate !== 0) {
+      return mode === "oldestFirst" ? byDate : -byDate;
+    }
+    return compareText(a.name, b.name);
+  }
+
+  if (key === "battery") {
+    const byBattery = compareNullableNumber(a.batterySocValue, b.batterySocValue);
+    if (byBattery !== 0) {
+      return mode === "lowToHigh" ? byBattery : -byBattery;
+    }
+    return compareText(a.name, b.name);
+  }
+
+  if (key === "owner") {
+    if (mode === "alphabetical") {
+      if (!a.ownerRegistered && b.ownerRegistered) {
+        return 1;
+      }
+      if (a.ownerRegistered && !b.ownerRegistered) {
+        return -1;
+      }
+      return compareText(a.ownerName, b.ownerName);
+    }
+
+    if (!a.ownerRegistered && b.ownerRegistered) {
+      return -1;
+    }
+    if (a.ownerRegistered && !b.ownerRegistered) {
+      return 1;
+    }
+    return compareText(a.ownerName, b.ownerName);
+  }
+
+  return 0;
+}
+
+function toggleSort(key: SortKey) {
+  if (!activeSort.value || activeSort.value.key !== key) {
+    activeSort.value = { key, modeIndex: 0 };
+    return;
+  }
+
+  const nextModeIndex = activeSort.value.modeIndex + 1;
+  if (nextModeIndex >= SORT_CYCLES[key].length) {
+    activeSort.value = null;
+    return;
+  }
+
+  activeSort.value = { key, modeIndex: nextModeIndex };
+}
+
+function getSortIndicator(key: SortKey): string {
+  if (!activeSort.value || activeSort.value.key !== key) {
+    return "↕";
+  }
+
+  const mode = SORT_CYCLES[key][activeSort.value.modeIndex];
+  if (mode === "asc") return "A-Z";
+  if (mode === "desc") return "Z-A";
+  if (mode === "onlineFirst") return "Online → Offline";
+  if (mode === "offlineFirst") return "Offline → Online";
+  if (mode === "oldestFirst") return "Mais antiga";
+  if (mode === "newestFirst") return "Mais recente";
+  if (mode === "highToLow") return "100% → 0%";
+  if (mode === "lowToHigh") return "0% → 100%";
+  if (mode === "alphabetical") return "A-Z";
+  if (mode === "uncatalogedFirst") return "Não cadastrado";
+  return "↕";
+}
+
+function getSortHint(key: SortKey): string {
+  if (!activeSort.value || activeSort.value.key !== key) {
+    return "Sem ordenação";
+  }
+  const mode = SORT_CYCLES[key][activeSort.value.modeIndex];
+  if (mode === "asc") return "Ordem alfabética crescente";
+  if (mode === "desc") return "Ordem alfabética decrescente";
+  if (mode === "onlineFirst") return "Online para Offline";
+  if (mode === "offlineFirst") return "Offline para Online";
+  if (mode === "oldestFirst") return "Data mais antiga primeiro";
+  if (mode === "newestFirst") return "Data mais recente primeiro";
+  if (mode === "highToLow") return "Bateria de maior para menor";
+  if (mode === "lowToHigh") return "Bateria de menor para maior";
+  if (mode === "alphabetical") return "Proprietário em ordem alfabética";
+  if (mode === "uncatalogedFirst") return "Não cadastrado primeiro";
+  return "Sem ordenação";
 }
 
 async function fetchStations(page: number) {
@@ -215,9 +386,7 @@ async function fetchStations(page: number) {
     };
 
     if (!response.ok) {
-      throw new Error(
-        getErrorMessage(payload, "Falha ao carregar a lista de plantas.")
-      );
+      throw new Error(getErrorMessage(payload, "Falha ao carregar a lista de plantas."));
     }
 
     if (!Array.isArray(payload.stationList)) {
@@ -227,6 +396,7 @@ async function fetchStations(page: number) {
     stations.value = payload.stationList.map((station, index) =>
       normalizeStation(station, index)
     );
+    activeSort.value = null;
     totalStations.value = Number.isFinite(Number(payload.total))
       ? Number(payload.total)
       : null;
@@ -269,12 +439,12 @@ async function authenticate() {
         : "";
 
     if (!token) {
-      throw new Error("Authentication response did not include accessToken.");
+      throw new Error("A resposta de autenticação não incluiu accessToken.");
     }
 
     accessToken.value = token;
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    authSuccess.value = "Autenticação concluída. Token armazenado localmente.";
+    authSuccess.value = "Autenticação concluída com sucesso.";
     await fetchStations(1);
   } catch (error) {
     authError.value =
@@ -294,6 +464,7 @@ function clearStoredToken() {
   stationsError.value = "";
   totalStations.value = null;
   currentPage.value = 1;
+  activeSort.value = null;
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
@@ -301,7 +472,6 @@ async function goToPreviousPage() {
   if (!hasPreviousPage.value || isLoadingStations.value) {
     return;
   }
-
   await fetchStations(currentPage.value - 1);
 }
 
@@ -309,7 +479,6 @@ async function goToNextPage() {
   if (!hasNextPage.value || isLoadingStations.value) {
     return;
   }
-
   await fetchStations(currentPage.value + 1);
 }
 
@@ -324,54 +493,56 @@ onMounted(async () => {
 <template>
   <div class="app-shell">
     <header class="topbar">
-      <h1>Solarman Workstation</h1>
-      <p>Teste Técnico: Integração com API Solarman</p>
+      <div class="topbar-content">
+        <div class="title-block">
+          <h1>Solarman Workstation</h1>
+          <p>Teste Técnico: Integração com API Solarman</p>
+        </div>
+
+        <details class="auth-menu">
+          <summary class="auth-menu-trigger">Autenticação</summary>
+          <div class="auth-menu-content">
+            <p class="auth-menu-title">Ações da conta</p>
+            <p class="auth-menu-subtitle">
+              Credenciais no backend. Token reutilizado nas requisições.
+            </p>
+            <div class="auth-actions">
+              <button
+                type="button"
+                class="primary-button"
+                :disabled="isAuthenticating"
+                @click="authenticate"
+              >
+                {{ isAuthenticating ? "Autenticando..." : "Autenticar conta" }}
+              </button>
+              <button
+                type="button"
+                class="secondary-button"
+                :disabled="isAuthenticating || !isAuthenticated"
+                @click="clearStoredToken"
+              >
+                Limpar token
+              </button>
+              <button
+                type="button"
+                class="secondary-button"
+                :disabled="!isAuthenticated || isLoadingStations"
+                @click="fetchStations(1)"
+              >
+                {{ isLoadingStations ? "Carregando..." : "Atualizar lista" }}
+              </button>
+            </div>
+            <p class="auth-status" :class="{ connected: isAuthenticated }">
+              {{ isAuthenticated ? "Conta autenticada" : "Conta não autenticada" }}
+            </p>
+            <p v-if="authSuccess" class="feedback success">{{ authSuccess }}</p>
+            <p v-if="authError" class="feedback error">{{ authError }}</p>
+          </div>
+        </details>
+      </div>
     </header>
 
     <main class="content" aria-live="polite">
-      <section class="panel" aria-label="Painel de autenticacao">
-        <h2>Autenticação Solarman</h2>
-        <p class="muted">
-          Credenciais configuradas no backend. O token é reutilizado nas
-          requisições seguintes.
-        </p>
-
-        <div class="actions">
-          <button
-            type="button"
-            class="primary-button"
-            :disabled="isAuthenticating"
-            @click="authenticate"
-          >
-            {{ isAuthenticating ? "Autenticando..." : "Autenticar conta" }}
-          </button>
-          <button
-            type="button"
-            class="secondary-button"
-            :disabled="isAuthenticating || !accessToken"
-            @click="clearStoredToken"
-          >
-            Limpar token
-          </button>
-          <button
-            type="button"
-            class="secondary-button"
-            :disabled="!accessToken || isLoadingStations"
-            @click="fetchStations(1)"
-          >
-            {{ isLoadingStations ? "Carregando..." : "Atualizar lista" }}
-          </button>
-        </div>
-
-        <p v-if="authSuccess" class="feedback success">{{ authSuccess }}</p>
-        <p v-if="authError" class="feedback error">{{ authError }}</p>
-
-        <div class="token-box" v-if="accessToken">
-          <p class="token-title">Token atual (mascarado)</p>
-          <code>{{ maskedToken }}</code>
-        </div>
-      </section>
-
       <section class="panel" aria-label="Lista de plantas solares">
         <div class="section-header">
           <h2>Plantas solares</h2>
@@ -390,13 +561,13 @@ onMounted(async () => {
           Carregando lista de plantas...
         </p>
         <p
-          v-else-if="accessToken && stations.length === 0"
+          v-else-if="isAuthenticated && stations.length === 0"
           class="feedback neutral"
         >
           Nenhuma planta encontrada para a página atual.
         </p>
-        <p v-else-if="!accessToken" class="feedback neutral">
-          Autentique para visualizar as plantas.
+        <p v-else-if="!isAuthenticated" class="feedback neutral">
+          Abra o menu de autenticação e autentique para visualizar as plantas.
         </p>
 
         <div v-if="stations.length > 0" class="cards-grid">
@@ -410,7 +581,9 @@ onMounted(async () => {
               <span
                 class="status-badge"
                 :class="{
-                  online: station.networkStatus.includes('ONLINE') && !station.networkStatus.includes('OFFLINE'),
+                  online:
+                    station.networkStatus.includes('ONLINE') &&
+                    !station.networkStatus.includes('OFFLINE'),
                   offline: station.networkStatus.includes('OFFLINE')
                 }"
               >
@@ -432,7 +605,7 @@ onMounted(async () => {
                 <dd>{{ formatNumber(station.installedCapacityKw) }}</dd>
               </div>
               <div>
-                <dt>Taxa de utilizacao</dt>
+                <dt>Taxa de utilização</dt>
                 <dd>
                   {{
                     station.utilizationPercent === null
@@ -481,16 +654,73 @@ onMounted(async () => {
             <caption>Tabela comparativa complementar</caption>
             <thead>
               <tr>
-                <th scope="col">Planta</th>
-                <th scope="col">Interconexão</th>
-                <th scope="col">Início de operação</th>
-                <th scope="col">Bateria</th>
-                <th scope="col">Proprietário</th>
+                <th scope="col">
+                  <button
+                    type="button"
+                    class="table-sort-button"
+                    @click="toggleSort('name')"
+                  >
+                    Planta
+                    <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
+                  </button>
+                  <span class="sort-hint">{{ getSortHint('name') }}</span>
+                </th>
+                <th scope="col">
+                  <button
+                    type="button"
+                    class="table-sort-button"
+                    @click="toggleSort('interconnection')"
+                  >
+                    Interconexão
+                    <span class="sort-indicator">
+                      {{ getSortIndicator('interconnection') }}
+                    </span>
+                  </button>
+                  <span class="sort-hint">{{ getSortHint('interconnection') }}</span>
+                </th>
+                <th scope="col">
+                  <button
+                    type="button"
+                    class="table-sort-button"
+                    @click="toggleSort('operation')"
+                  >
+                    Início de operação
+                    <span class="sort-indicator">
+                      {{ getSortIndicator('operation') }}
+                    </span>
+                  </button>
+                  <span class="sort-hint">{{ getSortHint('operation') }}</span>
+                </th>
+                <th scope="col">
+                  <button
+                    type="button"
+                    class="table-sort-button"
+                    @click="toggleSort('battery')"
+                  >
+                    Bateria
+                    <span class="sort-indicator">{{ getSortIndicator('battery') }}</span>
+                  </button>
+                  <span class="sort-hint">{{ getSortHint('battery') }}</span>
+                </th>
+                <th scope="col">
+                  <button
+                    type="button"
+                    class="table-sort-button"
+                    @click="toggleSort('owner')"
+                  >
+                    Proprietário
+                    <span class="sort-indicator">{{ getSortIndicator('owner') }}</span>
+                  </button>
+                  <span class="sort-hint">{{ getSortHint('owner') }}</span>
+                </th>
                 <th scope="col">Telefone</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="station in stations" :key="`table-${station.idKey}`">
+              <tr
+                v-for="station in comparisonStations"
+                :key="`table-${station.idKey}`"
+              >
                 <td>{{ station.name }}</td>
                 <td>{{ station.gridInterconnectionType }}</td>
                 <td>{{ station.startOperatingTime }}</td>
