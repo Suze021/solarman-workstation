@@ -308,24 +308,31 @@ button:disabled {
 
 .comparison-table-wrapper {
   margin-top: 1rem;
-  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
+  background: #ffffff;
+  overflow-x: auto;
+}
+
+.comparison-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.94rem;
 }
 
 .comparison-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 700px;
-  background: #ffffff;
-}
-
-.comparison-table caption {
-  text-align: left;
-  padding: 0.75rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-  border-bottom: 1px solid var(--border);
+  min-width: 760px;
 }
 
 .comparison-table th,
@@ -338,37 +345,6 @@ button:disabled {
 
 .comparison-table thead th {
   background: #f5f5f5;
-  vertical-align: top;
-}
-
-.table-sort-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #111111;
-  font-size: 0.86rem;
-  font-weight: 600;
-  text-align: left;
-}
-
-.table-sort-button:hover {
-  text-decoration: underline;
-}
-
-.sort-indicator {
-  color: #535353;
-  font-weight: 400;
-  font-size: 0.75rem;
-}
-
-.sort-hint {
-  display: block;
-  margin-top: 0.2rem;
-  color: #666666;
-  font-size: 0.72rem;
 }
 
 .pagination {
@@ -401,6 +377,7 @@ button:disabled {
     flex-direction: column;
     align-items: flex-start;
   }
+
 }
 
 @media (max-width: 680px) {
@@ -427,6 +404,11 @@ button:disabled {
     margin-top: 0.5rem;
     width: 100%;
     box-shadow: none;
+  }
+
+  .comparison-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .pagination button {

@@ -28,30 +28,17 @@ interface StationViewModel {
   type: string;
   gridInterconnectionType: string;
   startOperatingTime: string;
-  startOperatingEpochMs: number | null;
   lastUpdateTime: string;
   batterySoc: string;
-  batterySocValue: number | null;
   ownerName: string;
-  ownerRegistered: boolean;
   contactPhone: string;
 }
-
-type SortKey = "name" | "interconnection" | "operation" | "battery" | "owner";
 
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   "http://localhost:3001";
 const TOKEN_STORAGE_KEY = "solarman_workstation_access_token";
 const PAGE_SIZE = 20;
-
-const SORT_CYCLES: Record<SortKey, string[]> = {
-  name: ["asc", "desc"],
-  interconnection: ["asc", "desc"],
-  operation: ["oldestFirst", "newestFirst"],
-  battery: ["highToLow", "lowToHigh"],
-  owner: ["alphabetical", "uncatalogedFirst"],
-};
 
 const accessToken = ref("");
 const isAuthenticating = ref(false);
@@ -63,14 +50,12 @@ const stations = ref<StationViewModel[]>([]);
 const currentPage = ref(1);
 const totalStations = ref<number | null>(null);
 const showComparisonTable = ref(false);
-const activeSort = ref<{ key: SortKey; modeIndex: number } | null>(null);
 
 const hasPreviousPage = computed(() => currentPage.value > 1);
 const hasNextPage = computed(() => {
   if (typeof totalStations.value === "number") {
     return currentPage.value * PAGE_SIZE < totalStations.value;
   }
-
   return stations.value.length >= PAGE_SIZE;
 });
 
@@ -82,24 +67,6 @@ const totalLabel = computed(() => {
 });
 
 const isAuthenticated = computed(() => Boolean(accessToken.value));
-
-const comparisonStations = computed(() => {
-  const base = [...stations.value];
-  if (!activeSort.value) {
-    return base;
-  }
-
-  const sortConfig = activeSort.value;
-  const mode = SORT_CYCLES[sortConfig.key][sortConfig.modeIndex];
-
-  if (!mode) {
-    return base;
-  }
-
-  const sorted = [...base];
-  sorted.sort((a, b) => compareStations(a, b, sortConfig.key, mode));
-  return sorted;
-});
 
 function loadStoredToken() {
   const savedToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
@@ -166,10 +133,7 @@ function normalizeStation(station: StationApi, index: number): StationViewModel 
       ? (generationPowerKw / installedCapacityKw) * 100
       : null;
   const batterySocValue = toNumber(station.batterySoc);
-  const startOperatingEpochMs = normalizeEpochMilliseconds(station.startOperatingTime);
-  const ownerRaw = typeof station.ownerName === "string" ? station.ownerName.trim() : "";
-  const ownerRegistered = Boolean(ownerRaw);
-  const ownerName = ownerRegistered ? ownerRaw : "Não cadastrado";
+
   const baseId = typeof station.id === "number" ? String(station.id) : String(index);
 
   return {
@@ -183,13 +147,10 @@ function normalizeStation(station: StationApi, index: number): StationViewModel 
     type: formatValue(station.type),
     gridInterconnectionType: formatValue(station.gridInterconnectionType),
     startOperatingTime: formatDateTime(station.startOperatingTime),
-    startOperatingEpochMs,
     lastUpdateTime: formatDateTime(station.lastUpdateTime),
     batterySoc:
       batterySocValue === null ? "Não informado" : `${formatNumber(batterySocValue)}%`,
-    batterySocValue,
-    ownerName,
-    ownerRegistered,
+    ownerName: formatValue(station.ownerName),
     contactPhone: formatValue(station.contactPhone),
   };
 }
@@ -202,132 +163,6 @@ function getErrorMessage(payload: unknown, fallback: string): string {
     }
   }
   return fallback;
-}
-
-function compareText(a: string, b: string): number {
-  return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
-}
-
-function compareNullableNumber(a: number | null, b: number | null): number {
-  if (a === null && b === null) {
-    return 0;
-  }
-  if (a === null) {
-    return 1;
-  }
-  if (b === null) {
-    return -1;
-  }
-  return a - b;
-}
-
-function compareStations(
-  a: StationViewModel,
-  b: StationViewModel,
-  key: SortKey,
-  mode: string
-): number {
-  if (key === "name") {
-    const byName = compareText(a.name, b.name);
-    return mode === "asc" ? byName : -byName;
-  }
-
-  if (key === "interconnection") {
-    const byInterconnection = compareText(
-      a.gridInterconnectionType,
-      b.gridInterconnectionType
-    );
-    if (byInterconnection !== 0) {
-      return mode === "asc" ? byInterconnection : -byInterconnection;
-    }
-    return compareText(a.name, b.name);
-  }
-
-  if (key === "operation") {
-    const byDate = compareNullableNumber(a.startOperatingEpochMs, b.startOperatingEpochMs);
-    if (byDate !== 0) {
-      return mode === "oldestFirst" ? byDate : -byDate;
-    }
-    return compareText(a.name, b.name);
-  }
-
-  if (key === "battery") {
-    const byBattery = compareNullableNumber(a.batterySocValue, b.batterySocValue);
-    if (byBattery !== 0) {
-      return mode === "lowToHigh" ? byBattery : -byBattery;
-    }
-    return compareText(a.name, b.name);
-  }
-
-  if (key === "owner") {
-    if (mode === "alphabetical") {
-      if (!a.ownerRegistered && b.ownerRegistered) {
-        return 1;
-      }
-      if (a.ownerRegistered && !b.ownerRegistered) {
-        return -1;
-      }
-      return compareText(a.ownerName, b.ownerName);
-    }
-
-    if (!a.ownerRegistered && b.ownerRegistered) {
-      return -1;
-    }
-    if (a.ownerRegistered && !b.ownerRegistered) {
-      return 1;
-    }
-    return compareText(a.ownerName, b.ownerName);
-  }
-
-  return 0;
-}
-
-function toggleSort(key: SortKey) {
-  if (!activeSort.value || activeSort.value.key !== key) {
-    activeSort.value = { key, modeIndex: 0 };
-    return;
-  }
-
-  const nextModeIndex = activeSort.value.modeIndex + 1;
-  if (nextModeIndex >= SORT_CYCLES[key].length) {
-    activeSort.value = null;
-    return;
-  }
-
-  activeSort.value = { key, modeIndex: nextModeIndex };
-}
-
-function getSortIndicator(key: SortKey): string {
-  if (!activeSort.value || activeSort.value.key !== key) {
-    return "↕";
-  }
-
-  const mode = SORT_CYCLES[key][activeSort.value.modeIndex];
-  if (mode === "asc") return "A-Z";
-  if (mode === "desc") return "Z-A";
-  if (mode === "oldestFirst") return "Mais antiga";
-  if (mode === "newestFirst") return "Mais recente";
-  if (mode === "highToLow") return "100% → 0%";
-  if (mode === "lowToHigh") return "0% → 100%";
-  if (mode === "alphabetical") return "A-Z";
-  if (mode === "uncatalogedFirst") return "Não cadastrado";
-  return "↕";
-}
-
-function getSortHint(key: SortKey): string {
-  if (!activeSort.value || activeSort.value.key !== key) {
-    return "Sem ordenação";
-  }
-  const mode = SORT_CYCLES[key][activeSort.value.modeIndex];
-  if (mode === "asc") return "Ordem alfabética crescente";
-  if (mode === "desc") return "Ordem alfabética decrescente";
-  if (mode === "oldestFirst") return "Data mais antiga primeiro";
-  if (mode === "newestFirst") return "Data mais recente primeiro";
-  if (mode === "highToLow") return "Bateria de maior para menor";
-  if (mode === "lowToHigh") return "Bateria de menor para maior";
-  if (mode === "alphabetical") return "Proprietário em ordem alfabética";
-  if (mode === "uncatalogedFirst") return "Não cadastrado primeiro";
-  return "Sem ordenação";
 }
 
 async function fetchStations(page: number) {
@@ -369,7 +204,7 @@ async function fetchStations(page: number) {
     stations.value = payload.stationList.map((station, index) =>
       normalizeStation(station, index)
     );
-    activeSort.value = null;
+
     totalStations.value = Number.isFinite(Number(payload.total))
       ? Number(payload.total)
       : null;
@@ -437,7 +272,6 @@ function clearStoredToken() {
   stationsError.value = "";
   totalStations.value = null;
   currentPage.value = 1;
-  activeSort.value = null;
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
 }
 
@@ -623,77 +457,23 @@ onMounted(async () => {
           v-if="showComparisonTable && stations.length > 0"
           class="comparison-table-wrapper"
         >
+          <div class="comparison-header">
+            <p class="comparison-title">Tabela comparativa complementar</p>
+          </div>
+
           <table class="comparison-table">
-            <caption>Tabela comparativa complementar</caption>
             <thead>
               <tr>
-                <th scope="col">
-                  <button
-                    type="button"
-                    class="table-sort-button"
-                    @click="toggleSort('name')"
-                  >
-                    Planta
-                    <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
-                  </button>
-                  <span class="sort-hint">{{ getSortHint('name') }}</span>
-                </th>
-                <th scope="col">
-                  <button
-                    type="button"
-                    class="table-sort-button"
-                    @click="toggleSort('interconnection')"
-                  >
-                    Interconexão
-                    <span class="sort-indicator">
-                      {{ getSortIndicator('interconnection') }}
-                    </span>
-                  </button>
-                  <span class="sort-hint">{{ getSortHint('interconnection') }}</span>
-                </th>
-                <th scope="col">
-                  <button
-                    type="button"
-                    class="table-sort-button"
-                    @click="toggleSort('operation')"
-                  >
-                    Início de operação
-                    <span class="sort-indicator">
-                      {{ getSortIndicator('operation') }}
-                    </span>
-                  </button>
-                  <span class="sort-hint">{{ getSortHint('operation') }}</span>
-                </th>
-                <th scope="col">
-                  <button
-                    type="button"
-                    class="table-sort-button"
-                    @click="toggleSort('battery')"
-                  >
-                    Bateria
-                    <span class="sort-indicator">{{ getSortIndicator('battery') }}</span>
-                  </button>
-                  <span class="sort-hint">{{ getSortHint('battery') }}</span>
-                </th>
-                <th scope="col">
-                  <button
-                    type="button"
-                    class="table-sort-button"
-                    @click="toggleSort('owner')"
-                  >
-                    Proprietário
-                    <span class="sort-indicator">{{ getSortIndicator('owner') }}</span>
-                  </button>
-                  <span class="sort-hint">{{ getSortHint('owner') }}</span>
-                </th>
+                <th scope="col">Planta</th>
+                <th scope="col">Interconexão</th>
+                <th scope="col">Início de operação</th>
+                <th scope="col">Bateria</th>
+                <th scope="col">Proprietário</th>
                 <th scope="col">Telefone</th>
               </tr>
             </thead>
             <tbody>
-              <tr
-                v-for="station in comparisonStations"
-                :key="`table-${station.idKey}`"
-              >
+              <tr v-for="station in stations" :key="`table-${station.idKey}`">
                 <td>{{ station.name }}</td>
                 <td>{{ station.gridInterconnectionType }}</td>
                 <td>{{ station.startOperatingTime }}</td>

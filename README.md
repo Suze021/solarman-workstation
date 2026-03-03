@@ -2,33 +2,32 @@
 
 Teste Tecnico: Integracao com API Solarman - Marco de 2026.
 
-Aplicacao web para autenticar na API Solarman e listar plantas solares com paginacao, UI responsiva/acessivel e tratamento robusto de erros.
+Aplicacao web para autenticar na API Solarman e listar plantas solares com paginacao, interface responsiva e tratamento robusto de erros.
 
 ## Funcionalidades
 
 - Autenticacao via `POST /account/v1.0/token` com:
-  - `appId` na query string
-  - body com `appSecret`, `email`, `password` (SHA256), `orgId`
+  - `appId` na query string.
+  - body com `appSecret`, `email`, `password` (SHA256) e `orgId`.
 - Persistencia local do token para reutilizacao.
 - Listagem via `POST /station/v1.0/list` com:
-  - header `Authorization: bearer {accessToken}`
-  - body com `page`, `size`, `language` (opcional)
-- Exibicao das plantas em cards (modo padrao) com todos os campos exigidos.
-- Tabela comparativa opcional com campos complementares.
-- Ordenacao ciclica na tabela comparativa por clique no cabecalho (com reset no ultimo modo), incluindo interconexao por `gridInterconnectionType`.
+  - header `Authorization: bearer {accessToken}`.
+  - body com `page`, `size` e `language` (opcional).
+- Exibicao em cards (modo padrao) com todos os campos exigidos no teste.
+- Tabela comparativa complementar opcional (sem filtros).
 - Paginacao com `Anterior`, `Proxima` e `Pagina X`.
-- Estados de `loading`, `erro` e `vazio`.
+- Estados claros de `loading`, `erro` e `vazio`.
 
 ## Arquitetura
 
-- `frontend/`: Vue 3 + Vite + TypeScript
-- `backend/`: Node.js + Express + Axios
+- `frontend/`: Vue 3 + Vite + TypeScript.
+- `backend/`: Node.js + Express + Axios.
 - Backend atua como BFF para:
-  - centralizar chamadas Solarman
-  - aplicar SHA256 da senha
-  - tratar erros de rede/upstream/negocio
+  - centralizar chamadas Solarman.
+  - aplicar SHA256 da senha.
+  - tratar falhas de rede, timeout e erros de negocio.
 
-## Estrutura
+## Estrutura do projeto
 
 ```txt
 prova!/
@@ -40,21 +39,22 @@ prova!/
       config.js
       solarmanClient.js
       server.js
-    vercel.json
+    .env.example
   frontend/
     src/
       App.vue
       style.css
+    .env.example
+  README.md
 ```
 
+## Requisitos
+
+- Node.js 20+ (recomendado).
+- npm 10+.
+- Conta Solarman com credenciais validas no backend.
+
 ## Instalacao
-
-Pre-requisitos:
-
-- Node.js 20+ (recomendado)
-- npm 10+
-
-Instale dependencias:
 
 ```bash
 cd backend
@@ -66,21 +66,30 @@ npm install
 
 ## Configuracao
 
-1. No backend, copie o arquivo de exemplo:
+1. Backend:
 
 ```bash
 cd backend
 copy .env.example .env
 ```
 
-Preencha o arquivo `backend/.env` com suas credenciais Solarman reais. Nenhuma credencial real deve ser versionada.
+Preencha `backend/.env` com suas credenciais reais:
 
-2. No frontend, copie o arquivo de exemplo:
+- `SOLARMAN_APP_ID`
+- `SOLARMAN_APP_SECRET`
+- `SOLARMAN_EMAIL`
+- `SOLARMAN_PASSWORD`
+- `SOLARMAN_ORG_ID`
+- opcionais: `SOLARMAN_BASE_URL`, `SOLARMAN_TIMEOUT_MS`, `PORT`
+
+2. Frontend:
 
 ```bash
 cd frontend
 copy .env.example .env
 ```
+
+Ajuste `VITE_API_BASE_URL` se necessario.
 
 ## Como executar localmente
 
@@ -91,7 +100,7 @@ cd backend
 npm run dev
 ```
 
-Backend disponivel em `http://localhost:3001`.
+Backend local: `http://localhost:3001`
 
 2. Em outro terminal, inicie o frontend:
 
@@ -100,20 +109,44 @@ cd frontend
 npm run dev
 ```
 
-Frontend disponivel em `http://localhost:5173`.
+Frontend local: `http://localhost:5173`
 
-3. Fluxo na interface:
-- Clique em `Autenticar conta`.
-- A lista de plantas e carregada automaticamente.
-- Use paginacao para navegar.
-- Ative a tabela comparativa quando necessario.
+3. Fluxo de uso:
+- Abrir o menu `Autenticacao` no topo.
+- Clicar em `Autenticar conta`.
+- Navegar pelas paginas da lista.
+- Ativar tabela comparativa quando necessario.
+
+## Exposicao externa com Cloudflare Tunnel
+
+Nao e obrigatorio ter dominio proprio para testes rapidos.
+
+### Opcao 1: URL temporaria `trycloudflare.com` (sem dominio proprio)
+
+1. Garanta frontend e backend rodando localmente.
+2. Rode o tunnel para o frontend:
+
+```bash
+cloudflared tunnel --url http://localhost:5173
+```
+
+3. Acesse a URL `https://<nome>.trycloudflare.com` gerada no terminal.
+
+Observacao: o Vite ja esta configurado com `allowedHosts: ['.trycloudflare.com']` em `frontend/vite.config.ts`.
+
+### Opcao 2: Dominio proprio (URL estavel)
+
+1. Ter dominio gerenciado na Cloudflare.
+2. Autenticar no `cloudflared`.
+3. Criar tunnel nomeado e mapear DNS para o tunnel.
+4. Apontar esse host para o frontend local (ou para sua infraestrutura alvo).
 
 ## Campos exibidos por planta
 
 - `name`
 - `locationAddress`
 - `networkStatus`
-- `generationPower` (convertido para kW quando necessario)
+- `generationPower` (normalizado para kW quando necessario)
 - `installedCapacity` (kW)
 - taxa de utilizacao (`generationPower / installedCapacity * 100`)
 - `type`
@@ -124,22 +157,24 @@ Frontend disponivel em `http://localhost:5173`.
 - `ownerName` (quando disponivel)
 - `contactPhone` (quando disponivel)
 
-## Tratamento de erros implementado
+## Tratamento de erros
 
-- Erro de autenticacao.
-- Erro de negocio Solarman (`success=false`/`code` de falha).
-- Erro de rede/timeout (`503`/`504` no backend).
+- Falha de autenticacao.
+- Erro de negocio Solarman (`success=false` ou `code` de falha).
+- Erro de rede e timeout (`503`/`504` no backend).
 - Resposta invalida da API (sem `accessToken` ou sem `stationList`).
-- Estado vazio de dados no frontend.
+- Estado vazio no frontend.
+- Validacao de campos obrigatorios (`accessToken`, `page`, `size`) no endpoint de listagem.
 
 ## Decisoes tecnicas
 
-- Mantidos os metodos `POST` exigidos no contrato (sem traducao para `GET`).
-- Token armazenado no `localStorage` para reutilizacao durante a sessao de uso local.
-- Datas tratadas como milissegundos com fallback para segundos quando detectado payload nesse formato.
-- Status de rede exibido exatamente como retornado pela API (`ONLINE`, `ALL_ONLINE`, `PARTIAL_ONLINE`, `OFFLINE`, etc.).
+- Metodos `POST` mantidos exatamente conforme contrato.
+- Header `Authorization: bearer {accessToken}` preservado.
+- Datas tratadas como milissegundos com fallback automatico para segundos.
+- Status de rede exibido como retornado pela API (`ONLINE`, `ALL_ONLINE`, `PARTIAL_ONLINE`, `OFFLINE`, etc.).
+- Token salvo no `localStorage` para reutilizacao local.
 
-## Build
+## Validacoes recomendadas
 
 Frontend:
 
@@ -148,7 +183,7 @@ cd frontend
 npm run build
 ```
 
-Backend (checagem de sintaxe):
+Backend (sintaxe):
 
 ```bash
 cd backend
@@ -156,35 +191,3 @@ node -c src/app.js
 node -c src/server.js
 node -c src/solarmanClient.js
 ```
-
-## Deploy no Vercel (Serverless)
-
-O backend foi adaptado para Vercel Serverless sem mudar o contrato dos endpoints.
-
-Arquivos de compatibilidade:
-
-- `backend/api/index.js` (entrypoint serverless)
-- `backend/vercel.json` (rewrite para a funcao serverless)
-- `backend/src/app.js` (Express app reutilizavel)
-
-### Backend no Vercel
-
-1. Crie um projeto no Vercel apontando para a pasta `backend`.
-2. Configure as variaveis de ambiente no projeto backend:
-   - `SOLARMAN_APP_ID`
-   - `SOLARMAN_APP_SECRET`
-   - `SOLARMAN_EMAIL`
-   - `SOLARMAN_PASSWORD`
-   - `SOLARMAN_ORG_ID`
-   - opcional: `SOLARMAN_BASE_URL`, `SOLARMAN_TIMEOUT_MS`
-3. Faça deploy.
-4. A URL backend publicada deve responder:
-   - `POST /api/auth/token`
-   - `POST /api/stations/list`
-   - `GET /health`
-
-### Frontend no Vercel
-
-1. Crie um segundo projeto no Vercel apontando para a pasta `frontend`.
-2. Configure `VITE_API_BASE_URL` com a URL do backend publicado.
-3. Faça deploy do frontend.
