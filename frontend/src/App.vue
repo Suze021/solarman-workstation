@@ -1,44 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-
-interface StationApi {
-  id?: number;
-  name?: string;
-  locationAddress?: string;
-  networkStatus?: string;
-  generationPower?: number | string | null;
-  installedCapacity?: number | string | null;
-  type?: string;
-  gridInterconnectionType?: string;
-  startOperatingTime?: number | string | null;
-  lastUpdateTime?: number | string | null;
-  batterySoc?: number | string | null;
-  ownerName?: string;
-  contactPhone?: string;
-}
-
-interface StationViewModel {
-  idKey: string;
-  name: string;
-  locationAddress: string;
-  networkStatus: string;
-  generationPowerKw: number | null;
-  installedCapacityKw: number | null;
-  utilizationPercent: number | null;
-  type: string;
-  gridInterconnectionType: string;
-  startOperatingTime: string;
-  lastUpdateTime: string;
-  batterySoc: string;
-  ownerName: string;
-  contactPhone: string;
-}
-
-const API_BASE_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-  "http://localhost:3001";
-const TOKEN_STORAGE_KEY = "solarman_workstation_access_token";
-const PAGE_SIZE = 20;
+import { DEFAULT_PAGE_SIZE, TOKEN_STORAGE_KEY } from "./constants/app";
+import { normalizeStation } from "./mappers/stationMapper";
+import { authenticateAccount, requestStationsPage } from "./services/solarmanApi";
+import type { StationViewModel } from "./types/station";
+import { formatNumber } from "./utils/stationFormatters";
 
 const accessToken = ref("");
 const isAuthenticating = ref(false);
@@ -54,115 +20,21 @@ const showComparisonTable = ref(false);
 const hasPreviousPage = computed(() => currentPage.value > 1);
 const hasNextPage = computed(() => {
   if (typeof totalStations.value === "number") {
-    return currentPage.value * PAGE_SIZE < totalStations.value;
+    return currentPage.value * DEFAULT_PAGE_SIZE < totalStations.value;
   }
-  return stations.value.length >= PAGE_SIZE;
+  return stations.value.length >= DEFAULT_PAGE_SIZE;
 });
-
 const totalLabel = computed(() => {
   if (typeof totalStations.value !== "number") {
     return "";
   }
   return `${totalStations.value} plantas`;
 });
-
 const isAuthenticated = computed(() => Boolean(accessToken.value));
 
 function loadStoredToken() {
   const savedToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   accessToken.value = savedToken || "";
-}
-
-function toNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function normalizeEpochMilliseconds(value: unknown): number | null {
-  const numericValue = toNumber(value);
-  if (numericValue === null || numericValue <= 0) {
-    return null;
-  }
-  return numericValue < 1_000_000_000_000 ? numericValue * 1000 : numericValue;
-}
-
-function formatDateTime(value: unknown): string {
-  const epochMs = normalizeEpochMilliseconds(value);
-  if (epochMs === null) {
-    return "Não informado";
-  }
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(epochMs));
-}
-
-function toGenerationPowerKw(value: unknown): number | null {
-  const numericValue = toNumber(value);
-  if (numericValue === null) {
-    return null;
-  }
-  if (numericValue >= 1000) {
-    return numericValue / 1000;
-  }
-  return numericValue;
-}
-
-function formatValue(value: string | null | undefined): string {
-  const safeValue = typeof value === "string" ? value.trim() : "";
-  return safeValue ? safeValue : "Não informado";
-}
-
-function formatNumber(value: number | null, fractionDigits = 2): string {
-  if (value === null) {
-    return "Não informado";
-  }
-  return new Intl.NumberFormat("pt-BR", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  }).format(value);
-}
-
-function normalizeStation(station: StationApi, index: number): StationViewModel {
-  const generationPowerKw = toGenerationPowerKw(station.generationPower);
-  const installedCapacityKw = toNumber(station.installedCapacity);
-  const utilizationPercent =
-    generationPowerKw !== null &&
-    installedCapacityKw !== null &&
-    installedCapacityKw > 0
-      ? (generationPowerKw / installedCapacityKw) * 100
-      : null;
-  const batterySocValue = toNumber(station.batterySoc);
-
-  const baseId = typeof station.id === "number" ? String(station.id) : String(index);
-
-  return {
-    idKey: baseId,
-    name: formatValue(station.name),
-    locationAddress: formatValue(station.locationAddress),
-    networkStatus: formatValue(station.networkStatus),
-    generationPowerKw,
-    installedCapacityKw,
-    utilizationPercent,
-    type: formatValue(station.type),
-    gridInterconnectionType: formatValue(station.gridInterconnectionType),
-    startOperatingTime: formatDateTime(station.startOperatingTime),
-    lastUpdateTime: formatDateTime(station.lastUpdateTime),
-    batterySoc:
-      batterySocValue === null ? "Não informado" : `${formatNumber(batterySocValue)}%`,
-    ownerName: formatValue(station.ownerName),
-    contactPhone: formatValue(station.contactPhone),
-  };
-}
-
-function getErrorMessage(payload: unknown, fallback: string): string {
-  if (payload && typeof payload === "object" && "message" in payload) {
-    const message = (payload as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim()) {
-      return message;
-    }
-  }
-  return fallback;
 }
 
 async function fetchStations(page: number) {
@@ -175,39 +47,16 @@ async function fetchStations(page: number) {
   isLoadingStations.value = true;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/stations/list`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        accessToken: accessToken.value,
-        page,
-        size: PAGE_SIZE,
-      }),
+    const { stationList, total } = await requestStationsPage({
+      accessToken: accessToken.value,
+      page,
+      size: DEFAULT_PAGE_SIZE,
     });
 
-    const payload = (await response.json().catch(() => ({}))) as {
-      stationList?: StationApi[];
-      total?: number;
-      message?: string;
-    };
-
-    if (!response.ok) {
-      throw new Error(getErrorMessage(payload, "Falha ao carregar a lista de plantas."));
-    }
-
-    if (!Array.isArray(payload.stationList)) {
-      throw new Error("A resposta da lista de plantas é inválida.");
-    }
-
-    stations.value = payload.stationList.map((station, index) =>
+    stations.value = stationList.map((station, index) =>
       normalizeStation(station, index)
     );
-
-    totalStations.value = Number.isFinite(Number(payload.total))
-      ? Number(payload.total)
-      : null;
+    totalStations.value = total;
     currentPage.value = page;
   } catch (error) {
     stations.value = [];
@@ -227,38 +76,16 @@ async function authenticate() {
   isAuthenticating.value = true;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({}),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(getErrorMessage(payload, "Falha na autenticação."));
-    }
-
-    const token =
-      payload && typeof payload === "object" && "accessToken" in payload
-        ? String((payload as { accessToken?: string }).accessToken || "")
-        : "";
-
-    if (!token) {
-      throw new Error("A resposta de autenticação não incluiu accessToken.");
-    }
-
+    const token = await authenticateAccount();
     accessToken.value = token;
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    authSuccess.value = "Autenticação concluída com sucesso.";
+    authSuccess.value = "Autenticacao concluida com sucesso.";
     await fetchStations(1);
   } catch (error) {
     authError.value =
       error instanceof Error
         ? error.message
-        : "Erro inesperado durante a autenticação.";
+        : "Erro inesperado durante a autenticacao.";
   } finally {
     isAuthenticating.value = false;
   }
@@ -273,6 +100,10 @@ function clearStoredToken() {
   totalStations.value = null;
   currentPage.value = 1;
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+async function refreshStations() {
+  await fetchStations(1);
 }
 
 async function goToPreviousPage() {
@@ -303,15 +134,15 @@ onMounted(async () => {
       <div class="topbar-content">
         <div class="title-block">
           <h1>Solarman Workstation</h1>
-          <p>Teste Técnico: Integração com API Solarman</p>
+          <p>Teste Tecnico: Integracao com API Solarman</p>
         </div>
 
         <details class="auth-menu">
-          <summary class="auth-menu-trigger">Autenticação</summary>
+          <summary class="auth-menu-trigger">Autenticacao</summary>
           <div class="auth-menu-content">
-            <p class="auth-menu-title">Ações da conta</p>
+            <p class="auth-menu-title">Acoes da conta</p>
             <p class="auth-menu-subtitle">
-              Credenciais no backend. Token reutilizado nas requisições.
+              Credenciais no backend. Token reutilizado nas requisicoes.
             </p>
             <div class="auth-actions">
               <button
@@ -334,13 +165,13 @@ onMounted(async () => {
                 type="button"
                 class="secondary-button"
                 :disabled="!isAuthenticated || isLoadingStations"
-                @click="fetchStations(1)"
+                @click="refreshStations"
               >
                 {{ isLoadingStations ? "Carregando..." : "Atualizar lista" }}
               </button>
             </div>
             <p class="auth-status" :class="{ connected: isAuthenticated }">
-              {{ isAuthenticated ? "Conta autenticada" : "Conta não autenticada" }}
+              {{ isAuthenticated ? "Conta autenticada" : "Conta nao autenticada" }}
             </p>
             <p v-if="authSuccess" class="feedback success">{{ authSuccess }}</p>
             <p v-if="authError" class="feedback error">{{ authError }}</p>
@@ -354,12 +185,12 @@ onMounted(async () => {
         <div class="section-header">
           <h2>Plantas solares</h2>
           <p class="muted">
-            Página {{ currentPage }} <span v-if="totalLabel">| {{ totalLabel }}</span>
+            Pagina {{ currentPage }} <span v-if="totalLabel">| {{ totalLabel }}</span>
           </p>
         </div>
 
         <label class="toggle-line">
-          <input type="checkbox" v-model="showComparisonTable" />
+          <input v-model="showComparisonTable" type="checkbox" />
           Mostrar tabela comparativa (campos complementares).
         </label>
 
@@ -371,18 +202,14 @@ onMounted(async () => {
           v-else-if="isAuthenticated && stations.length === 0"
           class="feedback neutral"
         >
-          Nenhuma planta encontrada para a página atual.
+          Nenhuma planta encontrada para a pagina atual.
         </p>
         <p v-else-if="!isAuthenticated" class="feedback neutral">
-          Abra o menu de autenticação e autentique para visualizar as plantas.
+          Abra o menu de autenticacao e autentique para visualizar as plantas.
         </p>
 
         <div v-if="stations.length > 0" class="cards-grid">
-          <article
-            v-for="station in stations"
-            :key="station.idKey"
-            class="station-card"
-          >
+          <article v-for="station in stations" :key="station.idKey" class="station-card">
             <header class="station-header">
               <h3>{{ station.name }}</h3>
               <span
@@ -400,11 +227,11 @@ onMounted(async () => {
 
             <dl class="station-fields">
               <div>
-                <dt>Endereço</dt>
+                <dt>Endereco</dt>
                 <dd>{{ station.locationAddress }}</dd>
               </div>
               <div>
-                <dt>Geração atual (kW)</dt>
+                <dt>Geracao atual (kW)</dt>
                 <dd>{{ formatNumber(station.generationPowerKw) }}</dd>
               </div>
               <div>
@@ -412,11 +239,11 @@ onMounted(async () => {
                 <dd>{{ formatNumber(station.installedCapacityKw) }}</dd>
               </div>
               <div>
-                <dt>Taxa de utilização</dt>
+                <dt>Taxa de utilizacao</dt>
                 <dd>
                   {{
                     station.utilizationPercent === null
-                      ? "Não informado"
+                      ? "Nao informado"
                       : `${formatNumber(station.utilizationPercent)}%`
                   }}
                 </dd>
@@ -426,23 +253,23 @@ onMounted(async () => {
                 <dd>{{ station.type }}</dd>
               </div>
               <div>
-                <dt>Tipo de interconexão</dt>
+                <dt>Tipo de interconexao</dt>
                 <dd>{{ station.gridInterconnectionType }}</dd>
               </div>
               <div>
-                <dt>Início de operação</dt>
+                <dt>Inicio de operacao</dt>
                 <dd>{{ station.startOperatingTime }}</dd>
               </div>
               <div>
-                <dt>Última atualização</dt>
+                <dt>Ultima atualizacao</dt>
                 <dd>{{ station.lastUpdateTime }}</dd>
               </div>
               <div>
-                <dt>Nível de bateria</dt>
+                <dt>Nivel de bateria</dt>
                 <dd>{{ station.batterySoc }}</dd>
               </div>
               <div>
-                <dt>Proprietário</dt>
+                <dt>Proprietario</dt>
                 <dd>{{ station.ownerName }}</dd>
               </div>
               <div>
@@ -465,10 +292,10 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th scope="col">Planta</th>
-                <th scope="col">Interconexão</th>
-                <th scope="col">Início de operação</th>
+                <th scope="col">Interconexao</th>
+                <th scope="col">Inicio de operacao</th>
                 <th scope="col">Bateria</th>
-                <th scope="col">Proprietário</th>
+                <th scope="col">Proprietario</th>
                 <th scope="col">Telefone</th>
               </tr>
             </thead>
@@ -485,7 +312,7 @@ onMounted(async () => {
           </table>
         </div>
 
-        <nav class="pagination" aria-label="Paginação de plantas">
+        <nav class="pagination" aria-label="Paginacao de plantas">
           <button
             type="button"
             class="secondary-button"
@@ -494,14 +321,14 @@ onMounted(async () => {
           >
             Anterior
           </button>
-          <span class="page-label">Página {{ currentPage }}</span>
+          <span class="page-label">Pagina {{ currentPage }}</span>
           <button
             type="button"
             class="secondary-button"
             :disabled="!hasNextPage || isLoadingStations"
             @click="goToNextPage"
           >
-            Próxima
+            Proxima
           </button>
         </nav>
       </section>

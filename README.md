@@ -22,6 +22,11 @@ Aplicacao web para autenticar na API Solarman e listar plantas solares com pagin
 
 - `frontend/`: Vue 3 + Vite + TypeScript.
 - `backend/`: Node.js + Express + Axios.
+- Frontend organizado por responsabilidade:
+  - `services` para chamadas HTTP.
+  - `mappers` para normalizacao de dados da API.
+  - `utils` para formatacao e helpers.
+  - `types` para contratos TypeScript.
 - Backend atua como BFF para:
   - centralizar chamadas Solarman.
   - aplicar SHA256 da senha.
@@ -43,6 +48,16 @@ prova!/
   frontend/
     src/
       App.vue
+      constants/
+        app.ts
+      mappers/
+        stationMapper.ts
+      services/
+        solarmanApi.ts
+      types/
+        station.ts
+      utils/
+        stationFormatters.ts
       style.css
     .env.example
   README.md
